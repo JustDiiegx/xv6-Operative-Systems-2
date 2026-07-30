@@ -1,6 +1,6 @@
 /*
     Falta añadir el #include "dtb.h" para después añadir en el main
-    una llamada a dtb_init(). ChatGPT dice que también hace falta llamar
+    una llamada a dtb_init(). También hace falta llamar
     a uartinit() pero aquí de momento no está puesto. Veremos.
 */
 #include "types.h"
