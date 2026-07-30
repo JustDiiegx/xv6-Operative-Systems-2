@@ -53,7 +53,7 @@ int main(int argc, char *argv[]){
   iteracion++;
   
     for(int i = 0; i < 99999; i++){
-      for(int j = 0; j < 999; j++){
+      for(int j = 0; j < 9999; j++){
         aux = aux*j;
       }
     }

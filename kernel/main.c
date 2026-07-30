@@ -1,8 +1,14 @@
+/*
+    Falta añadir el #include "dtb.h" para después añadir en el main
+    una llamada a dtb_init(). ChatGPT dice que también hace falta llamar
+    a uartinit() pero aquí de momento no está puesto. Veremos.
+*/
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
 #include "riscv.h"
 #include "defs.h"
+#include "dtb.h"
 
 volatile static int started = 0;
 
@@ -16,6 +22,9 @@ main()
     printf("\n");
     printf("xv6 kernel is booting\n");
     printf("\n");
+    
+    dtb_init();
+    
     kinit();         // physical page allocator
     kvminit();       // create kernel page table
     kvminithart();   // turn on paging

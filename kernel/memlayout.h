@@ -18,6 +18,15 @@
 // PHYSTOP -- end RAM used by the kernel
 
 // qemu puts UART registers here in physical memory.
+
+
+/*
+    Según ChatGPT tengo que cambiar UART0 para que utilice una
+    dirección que le de el parser DTB, uart_base, pero no sé
+    cómo hacer eso, ¿simplemente cambio lo de #define UART0
+    y pongo que en vez de la dirección 0x10000000L sea uart_base?
+*/
+
 #define UART0 0x10000000L
 #define UART0_IRQ 10
 
