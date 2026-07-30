@@ -6,6 +6,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+#include "pstat.h"
+
+extern struct proc proc[NPROC];
 
 uint64
 sys_exit(void)
@@ -13,7 +16,7 @@ sys_exit(void)
   int n;
   argint(0, &n);
   kexit(n);
-  return 0; // not reached
+  return 0;  // not reached
 }
 
 uint64
@@ -47,17 +50,15 @@ sys_sbrk(void)
   argint(1, &t);
   addr = myproc()->sz;
 
-  if (t == SBRK_EAGER || n < 0) {
-    if (growproc(n) < 0) {
+  if(t == SBRK_EAGER || n < 0) {
+    if(growproc(n) < 0) {
       return -1;
     }
   } else {
     // Lazily allocate memory for this process: increase its memory
     // size but don't allocate memory. If the processes uses the
     // memory, vmfault() will allocate it.
-    if (addr + n < addr)
-      return -1;
-    if (addr + n > TRAPFRAME)
+    if(addr + n < addr)
       return -1;
     myproc()->sz += n;
   }
@@ -71,12 +72,12 @@ sys_pause(void)
   uint ticks0;
 
   argint(0, &n);
-  if (n < 0)
+  if(n < 0)
     n = 0;
   acquire(&tickslock);
   ticks0 = ticks;
-  while (ticks - ticks0 < n) {
-    if (killed(myproc())) {
+  while(ticks - ticks0 < n){
+    if(killed(myproc())){
       release(&tickslock);
       return -1;
     }
@@ -106,4 +107,35 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_settickets(void)
+{
+  int tickets;
+  argint(0,&tickets);
+  
+  if (tickets<1)
+	  return -1;
+
+  myproc()->tickets=tickets;
+  return 0;
+}
+
+uint64
+sys_getpinfo(void)
+{
+  struct pstat pstat;
+  uint64 addr;
+  argaddr(0,&addr);
+
+  for(int i = 0; i < NPROC; i++)
+  {
+    pstat.inuse[i]=proc[i].state;
+    pstat.tickets[i]=proc[i].tickets;
+    pstat.ticks[i]=proc[i].ticks;
+    pstat.pid[i]=proc[i].pid;
+  }
+  copyout(myproc()->pagetable,addr,(char *)&pstat,sizeof(struct pstat));
+  return 0;
 }
