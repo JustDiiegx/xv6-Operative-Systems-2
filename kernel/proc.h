@@ -81,6 +81,21 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// P3
+#define NVMA 16
+
+struct vma{
+  int used;		// ¿Está en uso?
+  uint64 addr;		// Dirección virtual inicial
+  int length;		// Longitud
+  int prot;		// Permisos
+  int flags;		// MAP_SHARED o MAP_PRIVATE
+  int fd;		// Descriptor de fichero
+  struct file *f;	// Puntero a la estructura file
+  int offset;		// Offset en el fichero
+};
+
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -91,8 +106,8 @@ struct proc {
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
-  int tickets;		       // Numbers of tickets (lottery scheduler)
-  int ticks;		       // Numbers of times I win the lottery
+  // P3
+  struct vma vmas[NVMA];	// Array de VMAs
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

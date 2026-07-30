@@ -6,9 +6,6 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
-#include "pstat.h"
-
-extern struct proc proc[NPROC];
 
 uint64
 sys_exit(void)
@@ -60,6 +57,8 @@ sys_sbrk(void)
     // memory, vmfault() will allocate it.
     if(addr + n < addr)
       return -1;
+    if(addr + n > TRAPFRAME)
+      return -1;
     myproc()->sz += n;
   }
   return addr;
@@ -107,35 +106,4 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
-}
-
-uint64
-sys_settickets(void)
-{
-  int tickets;
-  argint(0,&tickets);
-  
-  if (tickets<1)
-	  return -1;
-
-  myproc()->tickets=tickets;
-  return 0;
-}
-
-uint64
-sys_getpinfo(void)
-{
-  struct pstat pstat;
-  uint64 addr;
-  argaddr(0,&addr);
-
-  for(int i = 0; i < NPROC; i++)
-  {
-    pstat.inuse[i]=proc[i].state;
-    pstat.tickets[i]=proc[i].tickets;
-    pstat.ticks[i]=proc[i].ticks;
-    pstat.pid[i]=proc[i].pid;
-  }
-  copyout(myproc()->pagetable,addr,(char *)&pstat,sizeof(struct pstat));
-  return 0;
 }

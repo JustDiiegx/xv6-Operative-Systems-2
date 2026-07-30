@@ -2,13 +2,6 @@
 // low-level driver routines for 16550a UART.
 //
 
-/*
-    Habría que añadir #include "dtb.h" para que cuando utilice
-    los registros de memlayout.h se pueda inicializar la
-    variable UART0 con la dirección de memoria que le da dtb.c,
-    para ello necesitamos dtb.h para que le pase dicho registro.
-*/
-
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
@@ -16,16 +9,11 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
-#include "dtb.h"
-
-// definimos una variable para la dirección de UART0 nueva
-static uint64 uart_base_pa = 0;
 
 // the UART control registers are memory-mapped
 // at address UART0. this macro returns the
 // address of one of the registers.
-#define UART_REG(offset) ((volatile unsigned char *)(uart_base_pa + (offset)))
-//#define Reg(reg) ((volatile unsigned char *)(UART0 + (reg)))
+#define Reg(reg) ((volatile unsigned char *)(UART0 + (reg)))
 
 // the UART control registers.
 // some have different meanings for
@@ -47,10 +35,8 @@ static uint64 uart_base_pa = 0;
 #define LSR_RX_READY (1<<0)   // input is waiting to be read from RHR
 #define LSR_TX_IDLE (1<<5)    // THR can accept another character to send
 
-#define ReadReg(reg) (*(UART_REG(reg)))
-#define WriteReg(reg, v) (*(UART_REG(reg)) = (v))
-//#define ReadReg(reg) (*(Reg(reg)))
-//#define WriteReg(reg, v) (*(Reg(reg)) = (v))
+#define ReadReg(reg) (*(Reg(reg)))
+#define WriteReg(reg, v) (*(Reg(reg)) = (v))
 
 // for transmission.
 static struct spinlock tx_lock;
@@ -63,13 +49,6 @@ extern volatile int panicked; // from printf.c
 void
 uartinit(void)
 {
-  if (uart_base != 0){
-    uart_base_pa = uart_base;
-  }
-  else{
-    uart_base_pa = UART0;
-  }
-
   // disable interrupts.
   WriteReg(IER, 0x00);
 

@@ -503,3 +503,117 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_mmap(void)
+{
+  uint64 addr;
+  int length, prot, flags, fd, offset;
+  struct file *f;
+  struct proc *p = myproc();
+  struct vma *v = 0;
+
+  // 1. Obtener argumentos
+  argaddr(0, &addr);
+  argint(1, &length);
+  argint(2, &prot);
+  argint(3, &flags);
+  argfd(4, &fd, &f); 
+  argint(5, &offset);
+  // 2. Validaciones básicas
+  if(offset != 0 || length <= 0)
+    return -1;
+
+  // Si es MAP_SHARED y queremos escribir (PROT_WRITE), el fichero debe ser escribible
+  if((flags & MAP_SHARED) && (prot & PROT_WRITE) && !f->writable)
+    return -1;
+
+  // 3. Buscar un slot VMA libre
+  for(int i = 0; i < NVMA; i++){
+    if(p->vmas[i].used == 0){
+      v = &p->vmas[i];
+      break;
+    }
+  }
+
+  if(v == 0) // No hay espacio en la tabla de VMAs
+    return -1;
+
+  // 4. Configurar la VMA
+  // Usamos PGROUNDUP para alinear p->sz a la siguiente página si no lo está
+  v->used = 1;
+  v->addr = PGROUNDUP(p->sz);
+  v->length = length;
+  v->prot = prot;
+  v->flags = flags;
+  v->f = f;
+  v->offset = offset;
+
+  // 5. Incrementar referencia del fichero
+  filedup(v->f);
+
+  // 6. Actualizar el tamaño del proceso para reservar ese espacio virtual
+  // Esto evita que futuros sbrk() o mmap() sobrescriban esta región.
+  p->sz = v->addr + length;
+
+  return v->addr;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr;
+  int length;
+  struct proc *p = myproc();
+  struct vma *v = 0;
+
+  argaddr(0, &addr);
+  argint(1, &length);
+
+  // 1. Buscar la VMA correspondiente al rango
+  int vma_found = 0;
+  for(int i = 0; i < NVMA; i++){
+    if(p->vmas[i].used && addr >= p->vmas[i].addr && addr < (p->vmas[i].addr + p->vmas[i].length)){
+      v = &p->vmas[i];
+      vma_found = 1;
+      break;
+    }
+  }
+
+  if(!vma_found) return -1;
+
+  // 2. Recorrer las páginas para escribir a disco (Write-back) y desmapear
+  uint64 cur = addr;
+  while(cur < addr + length){
+    // Usamos walk para ver si la página existe en la tabla
+    pte_t *pte = walk(p->pagetable, cur, 0);
+
+    // Solo hacemos algo si la página es VÁLIDA (PTE_V)
+    if(pte && (*pte & PTE_V)){
+      // Si es MAP_SHARED y la página está sucia (PTE_D), escribimos al fichero
+      if((v->flags & MAP_SHARED) && (*pte & PTE_D)){
+        begin_op();
+        ilock(v->f->ip);
+        
+        writei(v->f->ip, 1, cur, v->offset + (cur - v->addr), PGSIZE);
+        
+        iunlock(v->f->ip);
+        end_op();
+      }
+
+      // Desmapeamos la página y liberamos memoria física
+      uvmunmap(p->pagetable, cur, 1, 1);
+    }
+    
+    cur += PGSIZE;
+  }
+
+  // 3. Gestión de la estructura VMA
+  // Si desmapeamos toda la región, liberamos la VMA
+  if(addr == v->addr && length == v->length){
+    fileclose(v->f); // Decrementamos la referencia al fichero
+    v->used = 0;     // Marcamos el slot como libre
+  }
+
+  return 0;
+}

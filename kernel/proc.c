@@ -3,9 +3,14 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
+#include "fcntl.h"
+
 #include "proc.h"
 #include "defs.h"
-#include "random.h"
 
 struct cpu cpus[NCPU];
 
@@ -18,11 +23,6 @@ struct spinlock pid_lock;
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
-
-//int rand(int max);
-
-// Para la funcion random
-//static unsigned long randstate = 1;
 
 extern char trampoline[]; // trampoline.S
 
@@ -130,8 +130,11 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-//  p->tickets = rand(100) + 1;
-//  p->ticks = 0;
+
+  // P3
+  for(int i = 0; i < NVMA; i++){
+    p->vmas[i].used = 0;
+  }
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -235,9 +238,6 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
-  p->tickets = 1;
-//  p->tickets = rand(100) + 1;
-  p->ticks = 0;
 
   release(&p->lock);
 }
@@ -252,6 +252,9 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    if(sz + n > TRAPFRAME){
+      return -1;
+    }
     if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
       return -1;
     }
@@ -284,6 +287,15 @@ kfork(void)
   }
   np->sz = p->sz;
 
+  // P3
+  for(i = 0; i < NVMA; i++){
+    if(p->vmas[i].used){
+      np->vmas[i] = p->vmas[i];
+      filedup(np->vmas[i].f);
+    }
+  }
+
+
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -308,11 +320,7 @@ kfork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
-  np->tickets = 0;
   release(&np->lock);
-
-  np->tickets=p->tickets;
-  np->ticks=0;
 
   return pid;
 }
@@ -342,6 +350,37 @@ kexit(int status)
 
   if(p == initproc)
     panic("init exiting");
+
+  // P3
+  for(int i = 0; i < NVMA; i++){
+    struct vma *v = &p->vmas[i];
+    if(v->used){
+      // Si es compartido y escribible, comprobar si hay páginas sucias (dirty)
+      if(v->flags & MAP_SHARED && (v->prot & PROT_WRITE)){
+        for(uint64 va = v->addr; va < v->addr + v->length; va += PGSIZE){
+          // Usamos walk para ver la PTE. Asumimos walk disponible en defs.h
+          pte_t *pte = walk(p->pagetable, va, 0);
+          
+          // Si la página existe, es válida y está sucia (PTE_D bit 7)
+          if(pte && (*pte & PTE_V) && (*pte & (1L << 7))){
+             begin_op();
+             ilock(v->f->ip);
+             // Escribimos la página al disco
+             writei(v->f->ip, 1, va, v->offset + (va - v->addr), PGSIZE);
+             iunlock(v->f->ip);
+             end_op();
+          }
+        }
+      }
+      // Desmapear la región de memoria (liberando páginas físicas)
+      uvmunmap(p->pagetable, v->addr, (v->length + PGSIZE - 1) / PGSIZE, 1);
+      
+      // Cerrar el fichero y marcar VMA como libre
+      fileclose(v->f);
+      v->used = 0;
+    }
+  }
+
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
@@ -438,20 +477,8 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
-  uint32 r;
 
   c->proc = 0;
-  
-  // Seed random
-	static _Bool have_seeded = 0;
-	const int seed = 1323;
-	if(!have_seeded)
-	{
-		srand(seed);
-		have_seeded = 1;
-	}
-  
   for(;;){
     // The most recent process to run may have had interrupts
     // turned off; enable them to avoid a deadlock if all
@@ -462,59 +489,24 @@ scheduler(void)
     intr_off();
 
     int found = 0;
-    int total = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
-//        p->state = RUNNING;
-        total += p->tickets;
-//        c->proc = p;
-//        swtch(&c->context, &p->context);
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
-//        c->proc = 0;
-//        found = 1;
+        c->proc = 0;
+        found = 1;
       }
       release(&p->lock);
     }
-    
-    // 2) escoger boleto ganador en [1..total]
-//    r = rand(total) + 1;
-      r = rand()%(total);  
-    
-    int acc = 0;
-    struct proc *winner = 0;
-    for(p = proc; p < &proc[NPROC]; p++){
-      if(p->state != RUNNABLE) continue;
-      acc += p->tickets;
-      if(acc >= r){
-        winner = p;
-        break;
-      }
-    }
-    
-    
-      if(winner){
-      // context switch al ganador (idéntico al original)
-      acquire(&winner->lock);
-      if(winner->state == RUNNABLE){
-        winner->state = RUNNING;
-        struct cpu *c = mycpu();
-        c->proc = winner;
-        swtch(&c->context, &winner->context);
-        c->proc = 0;
-        // cuando vuelve, el proceso ya habrá ejecutado
-        // aumentar contador de veces elegido
-        winner->ticks++;
-      }
-      release(&winner->lock);
-    }
-    
-    if(total == 0 || found == 0) {
+    if(found == 0) {
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
     }
@@ -748,22 +740,3 @@ procdump(void)
     printf("\n");
   }
 }
-
-
-// Funcion auxiliar random usada en userinit
-/*
-int rand(int max){
-  static unsigned char lsfr_value = 0x56;
-  unsigned char bit;
-  int counter = 0;
-  
-  do
-  {
-    bit = ((lsfr_value >> 2) ^ (lsfr_value >> 3)) & 1;
-    lsfr_value = (lsfr_value >> 1) | (bit << 7);
-    counter++;
-  }
-  while(counter < 100);
-  
-  return lsfr_value %max;
-}*/

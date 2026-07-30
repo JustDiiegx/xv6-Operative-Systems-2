@@ -936,7 +936,7 @@ reparent(char *s)
 void
 twochildren(char *s)
 {
-  for(int i = 0; i < 10; i++){
+  for(int i = 0; i < 1000; i++){
     int pid1 = fork();
     if(pid1 < 0){
       printf("%s: fork failed\n", s);
@@ -1035,7 +1035,7 @@ forkforkfork(char *s)
 void
 reparent2(char *s)
 {
-  for(int i = 0; i < 80; i++){
+  for(int i = 0; i < 800; i++){
     int pid1 = fork();
     if(pid1 < 0){
       printf("fork failed\n");
@@ -2698,6 +2698,56 @@ lazy_copy(char *s)
   exit(0);
 }
 
+void
+lazy_sbrk(char *s)
+{
+  // sbrk() takes just int, so take 2^30-sized steps towards MAXVA
+  char *p = sbrk(0);
+  while ((uint64)p < MAXVA-(1<<30)) {
+    p = sbrklazy(1<<30);
+    if (p < 0) {
+      printf("sbrklazy(%d) returned %p\n", 1<<30, p);
+      exit(1);
+    }
+
+    p = sbrklazy(0);
+  }
+
+  int n = TRAPFRAME-PGSIZE-(uint64)p;
+
+  char *p1 = sbrklazy(n);
+  if (p1 < 0 || p1 != p) {
+    printf("sbrklazy(%d) returned %p, not expected %p\n", n, p1, p);
+    exit(1);
+  }
+
+  p = sbrk(PGSIZE);
+  if (p < 0 || (uint64)p != TRAPFRAME-PGSIZE) {
+    printf("sbrk(%d) returned %p, not expected TRAPFRAME-PGSIZE\n", PGSIZE, p);
+    exit(1);
+  }
+
+  p[0] = 1;
+  if (p[1] != 0) {
+    printf("sbrk() returned non-zero-filled memory\n");
+    exit(1);
+  }
+
+  p = sbrk(1);
+  if ((uint64)p != -1) {
+    printf("sbrk(1) returned %p, expected error\n", p);
+    exit(1);
+  }
+
+  p = sbrklazy(1);
+  if ((uint64)p != -1) {
+    printf("sbrklazy(1) returned %p, expected error\n", p);
+    exit(1);
+  }
+
+  exit(0);
+}
+
 struct test {
   void (*f)(char *);
   char *s;
@@ -2722,7 +2772,7 @@ struct test {
   {exectest, "exectest"},
   {pipe1, "pipe1"},
   {killstatus, "killstatus"},
-  //{preempt, "preempt"},
+  {preempt, "preempt"},
   {exitwait, "exitwait"},
   {reparent, "reparent" },
   {twochildren, "twochildren"},
@@ -2765,6 +2815,7 @@ struct test {
   {lazy_alloc, "lazy_alloc"},
   {lazy_unmap, "lazy_unmap"},
   {lazy_copy, "lazy_copy"},
+  {lazy_sbrk, "lazy_sbrk"},
   { 0, 0},
 };
 
